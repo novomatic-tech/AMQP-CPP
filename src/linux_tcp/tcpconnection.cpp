@@ -26,7 +26,7 @@ namespace AMQP {
  */
 TcpConnection::TcpConnection(TcpHandler *handler, const Address &address) :
     _handler(handler),
-    _state(new TcpResolver(this, address.hostname(), address.port(), address.secure())),
+    _state(new TcpResolver(this, address.hostname(), address.port(), address.secure(), address.option("connectTimeout", 5), ConnectionOrder(address.option("connectionOrder")))),
     _connection(this, address.login(), address.vhost()) 
 {
     // tell the handler
@@ -118,7 +118,8 @@ void TcpConnection::process(int fd, int flags)
 }
 
 /**
- *  Close the connection
+ *  Close the connection. 
+ *  Warning: this potentially directly calls several handlers (onError, onLost, onDetached)
  *  @return bool
  */
 bool TcpConnection::close(bool immediate)
@@ -140,10 +141,17 @@ bool TcpConnection::close(bool immediate)
 
     // stop if object was destructed
     if (!monitor.valid()) return true;
-    
+
+    // also call the lost handler, we have now lost the connection from this state (since we force-closed). 
+    // this makes sure the onLost and onDetached is properly called.
+    onLost(_state.get());
+
+    // stop if object was destructed
+    if (!monitor.valid()) return true;
+
     // change the state
     _state.reset(new TcpClosed(this));
-    
+
     // done, we return true because the connection is closed
     return true;
 }
@@ -278,4 +286,3 @@ void TcpConnection::onLost(TcpState *state)
  *  End of namespace
  */
 }
-
